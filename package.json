@@ -1,0 +1,11 @@
+{
+  "name": "miniwall",
+  "version": "1.0.0",
+  "description": "SaaS API where users can post thoughts,views etc and share",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "author": "Moses Nganga",
+  "license": "ISC"
+}
