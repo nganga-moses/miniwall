@@ -5,38 +5,32 @@ const cors = require('cors')
 const mongoose = require('mongoose')
 const bcrypt  = require('bcryptjs')
 const jwt = require('jsonwebtoken')
-
-const userSchema = require('model/User')
-const postSchema = require('model/Post')
-const commentSchema = require('model/Comment')
+//Data Models
+const Post = require('./model/Post')
+const User = require('./model/User')
+const Comment = require('./model/Comment')
 
 const app = express()
 app.use(cors())
 app.use(express.json())
-
-mongoose.connect(process.env.DB_URL,{
-    useNewUrlParser: true,
-    useUnifiedTopology:true,
-    useCreateIndex: true
-}).then(()=>{
+app.use(express.urlencoded({extended:true}))
+mongoose.connect(process.env.DB_URL).then(()=>{
     console.log('Connected to MongoDB')
 }).catch((error)=>{
     console.log('Error Connecting to MongoDB:',error.message)
 })
 
-// Data models
-const User = mongoose.model('User', userSchema)
-const Post = mongoose.model('Post', postSchema)
-const Comment = mongoose.model('Comment', commentSchema)
+
 
 // Authentication routes
-app.post('/register', async (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
     try {
-        const saltRounds = 10
-        const passwordHash = await bcrypt.hash(req.body.password, saltRounds)
+        const salt = bcrypt.genSaltSync(10);
+        const hashedPassword = await bcrypt.hash(req.body.password, salt)
         const user = new User({
-            username: req.body.username,
-            passwordHash
+            name: req.body.name,
+            email: req.body.email,
+            password: hashedPassword
         })
 
         const savedUser = await user.save()
@@ -47,18 +41,18 @@ app.post('/register', async (req, res) => {
         res.status(400).json({ error: error.message })
     }
 })
-app.post('/login', async (req, res) => {
-    const user = await User.findOne({ username: req.body.username })
+app.post('/api/auth/login', async (req, res) => {
+    const user = await User.findOne({ email: req.body.email })
     const passwordCorrect = user === null
         ? false
-        : await bcrypt.compare(req.body.password, user.passwordHash)
+        : await bcrypt.compare(req.body.password, user.password)
 
     if (!(user && passwordCorrect)) {
         return res.status(401).json({ error: 'invalid username or password' })
     }
 
     const userForToken = {
-        username: user.username,
+        username: user.email,
         id: user._id
     }
 
@@ -66,9 +60,24 @@ app.post('/login', async (req, res) => {
 
     res.status(200).json({ token, username: user.username })
 })
+function authenticate(req) {
+    if(!req.headers.authorization){
+        return false
 
+    }
+    const token = req.headers.authorization.split(' ')[1]
+    const decodedToken = jwt.verify(token, process.env.JWT_SECRET)
+
+    return [!(!token || !decodedToken.id),decodedToken];
+
+}
 // Post routes
 app.get('/posts', async (req, res) => {
+
+    if (!authenticate(req)[0]){
+        return res.status(401).json({ error: 'invalid request. Authentication failed' })
+    }
+
     const posts = await Post.find({})
         .populate('author', { username: 1 })
         .populate('comments', { author: 1, content: 1 })
@@ -78,17 +87,17 @@ app.get('/posts', async (req, res) => {
 })
 
 app.post('/posts', async (req, res) => {
-    const token = req.headers.authorization.split(' ')[1]
-    const decodedToken = jwt.verify(token, process.env.JWT_SECRET)
+    let decodedToken = authenticate(req);
 
-    if (!token || !decodedToken.id) {
-        return res.status(401).json({ error: 'token missing or invalid' })
+    if (!decodedToken[0]){
+        return res.status(401).json({ error: 'invalid request. Authentication failed' })
     }
 
-    const user = await User.findById(decodedToken.id)
+    const user = await User.findById(decodedToken[1].id)
 
     const post = new Post({
         author: user._id,
+        title: req.body.title,
         content: req.body.content
     })
 
@@ -98,6 +107,10 @@ app.post('/posts', async (req, res) => {
 })
 
 app.get('/posts/:id', async (req, res) => {
+    if (!authenticate(req)){
+        return res.status(401).json({ error: 'invalid request. Authentication failed' })
+    }
+
     const post = await Post.findById(req.params.id)
         .populate('author', { username: 1 })
         .populate('comments', { author: 1, content: 1 })
@@ -111,6 +124,10 @@ app.get('/posts/:id', async (req, res) => {
 })
 
 app.put('/posts/:id', async (req, res) => {
+    if(!req.headers.authorization){
+        return res.status(401).json({ error: 'invalid authorization' })
+
+    }
     const token = req.headers.authorization.split(' ')[1]
     const decodedToken = jwt.verify(token, process.env.JWT_SECRET)
 
@@ -133,6 +150,10 @@ app.put('/posts/:id', async (req, res) => {
 })
 
 app.delete('/posts/:id', async (req, res) => {
+    if(!req.headers.authorization){
+        return res.status(401).json({ error: 'invalid authorization' })
+
+    }
     const token = req.headers.authorization.split(' ')[1]
     const decodedToken = jwt.verify(token, process.env.JWT_SECRET)
 
@@ -152,15 +173,20 @@ app.delete('/posts/:id', async (req, res) => {
 })
 
 // Comment routes
-app.post('/comments', async (req, res) => {
-    const token = req.headers.authorization.split(' ')[1]
-    const decodedToken = jwt.verify(token, process.env.JWT_SECRET)
+app.post('/comments/:id', async (req, res) => {
+    let decodedToken = authenticate(req);
 
-    if (!token || !decodedToken.id) {
-        return res.status(401).json({ error: 'token missing or invalid' })
+    if (!decodedToken[0]){
+        return res.status(401).json({ error: 'invalid request. Authentication failed' })
     }
 
-    const user = await User.findById(decodedToken.id)
+    const user = await User.findById(decodedToken[1].id)
+    const post = await Post.findById(req.params.id)
+
+    if (!user._id.equals(post.author._id)){
+        return res.status(401).json({ error: 'invalid request. You are not allowed to comment on this post' })
+
+    }
 
     const comment = new Comment({
         author: user._id,
@@ -169,9 +195,7 @@ app.post('/comments', async (req, res) => {
 
     const savedComment = await comment.save()
 
-    const post = await Post.findById(req.body.postId)
-
-    post.comments = post.comments.concat(savedComment._id)
+    post.comments.push(new Comment(savedComment))
 
     await post.save()
 
