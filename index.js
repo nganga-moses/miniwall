@@ -224,17 +224,16 @@ app.put('/comments/:id', async (req, res) => {
 })
 
 app.delete('/comments/:id', async (req, res) => {
-    const token = req.headers.authorization.split(' ')[1]
-    const decodedToken = jwt.verify(token, process.env.JWT_SECRET)
+    let decodedToken = authenticate(req);
 
-    if (!token || !decodedToken.id) {
-        return res.status(401).json({ error: 'token missing or invalid' })
+    if (!decodedToken[0]){
+        return res.status(401).json({ error: 'invalid request. Authentication failed' })
     }
-
     const comment = await Comment.findById(req.params.id)
 
-    if (comment.author.toString() !== decodedToken.id) {
-        return res.status(401).json({ error: 'unauthorized' })
+    if (!comment.author._id.equals(decodedToken[1].id)){
+        return res.status(401).json({ error: 'unauthorized access' })
+
     }
 
     const post = await Post.findById(comment.post)
@@ -250,15 +249,19 @@ app.delete('/comments/:id', async (req, res) => {
 
 // Like routes
 app.post('/likes/:id', async (req, res) => {
-    const token = req.headers.authorization.split(' ')[1]
-    const decodedToken = jwt.verify(token, process.env.JWT_SECRET)
+    let decodedToken = authenticate(req);
 
-    if (!token || !decodedToken.id) {
-        return res.status(401).json({ error: 'token missing or invalid' })
+    if (!decodedToken[0]){
+        return res.status(401).json({ error: 'invalid request. Authentication failed' })
     }
 
-    const user = await User.findById(decodedToken.id)
+    const user = await User.findById(decodedToken[1].id)
     const post = await Post.findById(req.params.id)
+
+    if (user._id.equals(post.author._id)){
+        return res.status(401).json({ error: 'invalid request. You are not allowed to like this post' })
+
+    }
 
     if (post.likes.includes(user._id)) {
         return res.status(400).json({ error: 'already liked' })
@@ -272,14 +275,13 @@ app.post('/likes/:id', async (req, res) => {
 })
 
 app.delete('/likes/:id', async (req, res) => {
-    const token = req.headers.authorization.split(' ')[1]
-    const decodedToken = jwt.verify(token, process.env.JWT_SECRET)
+    let decodedToken = authenticate(req);
 
-    if (!token || !decodedToken.id) {
-        return res.status(401).json({ error: 'token missing or invalid' })
+    if (!decodedToken[0]){
+        return res.status(401).json({ error: 'invalid request. Authentication failed' })
     }
 
-    const user = await User.findById(decodedToken.id)
+    const user = await User.findById(decodedToken[1].id)
 
     const post = await Post.findById(req.params.id)
 

@@ -1,0 +1,5 @@
+.env
+.idea/
+mini_wall.iml
+node_modules/
+package-lock.json
