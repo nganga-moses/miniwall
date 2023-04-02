@@ -5,6 +5,7 @@ const cors = require('cors')
 const mongoose = require('mongoose')
 const bcrypt  = require('bcryptjs')
 const jwt = require('jsonwebtoken')
+
 //Data Models
 const Post = require('./model/Post')
 const User = require('./model/User')
@@ -19,8 +20,6 @@ mongoose.connect(process.env.DB_URL).then(()=>{
 }).catch((error)=>{
     console.log('Error Connecting to MongoDB:',error.message)
 })
-
-
 
 // Authentication routes
 app.post('/api/auth/register', async (req, res) => {
@@ -62,7 +61,7 @@ app.post('/api/auth/login', async (req, res) => {
 })
 function authenticate(req) {
     if(!req.headers.authorization){
-        return false
+        return [false,'']
 
     }
     const token = req.headers.authorization.split(' ')[1]
@@ -72,13 +71,13 @@ function authenticate(req) {
 
 }
 // Post routes
-app.get('/posts', async (req, res) => {
+app.get('/api/posts', async (req, res) => {
 
     if (!authenticate(req)[0]){
         return res.status(401).json({ error: 'invalid request. Authentication failed' })
     }
 
-    const posts = await Post.find({})
+    const posts = await Post.find({}).sort({ likes: -1, created_at: 1 })
         .populate('author', { username: 1 })
         .populate('comments', { author: 1, content: 1 })
         .populate('likes', { username: 1 })
@@ -86,11 +85,11 @@ app.get('/posts', async (req, res) => {
     res.json(posts)
 })
 
-app.post('/posts', async (req, res) => {
+app.post('/api/posts', async (req, res) => {
     let decodedToken = authenticate(req);
 
     if (!decodedToken[0]){
-        return res.status(401).json({ error: 'invalid request. Authentication failed' })
+        return res.status(401).json({ error: 'Unauthorized' })
     }
 
     const user = await User.findById(decodedToken[1].id)
@@ -106,7 +105,7 @@ app.post('/posts', async (req, res) => {
     res.json(savedPost)
 })
 
-app.get('/posts/:id', async (req, res) => {
+app.get('/api/posts/:id', async (req, res) => {
     if (!authenticate(req)){
         return res.status(401).json({ error: 'invalid request. Authentication failed' })
     }
@@ -123,7 +122,7 @@ app.get('/posts/:id', async (req, res) => {
     }
 })
 
-app.put('/posts/:id', async (req, res) => {
+app.put('/api/posts/:id', async (req, res) => {
     if(!req.headers.authorization){
         return res.status(401).json({ error: 'invalid authorization' })
 
@@ -149,7 +148,7 @@ app.put('/posts/:id', async (req, res) => {
     res.json(savedPost)
 })
 
-app.delete('/posts/:id', async (req, res) => {
+app.delete('/api/posts/:id', async (req, res) => {
     if(!req.headers.authorization){
         return res.status(401).json({ error: 'invalid authorization' })
 
@@ -173,7 +172,7 @@ app.delete('/posts/:id', async (req, res) => {
 })
 
 // Comment routes
-app.post('/comments/:id', async (req, res) => {
+app.post('/api/comments/:id', async (req, res) => {
     let decodedToken = authenticate(req);
 
     if (!decodedToken[0]){
@@ -183,7 +182,7 @@ app.post('/comments/:id', async (req, res) => {
     const user = await User.findById(decodedToken[1].id)
     const post = await Post.findById(req.params.id)
 
-    if (!user._id.equals(post.author._id)){
+    if (user._id.equals(post.author._id)){
         return res.status(401).json({ error: 'invalid request. You are not allowed to comment on this post' })
 
     }
@@ -195,6 +194,7 @@ app.post('/comments/:id', async (req, res) => {
 
     const savedComment = await comment.save()
 
+
     post.comments.push(new Comment(savedComment))
 
     await post.save()
@@ -202,7 +202,7 @@ app.post('/comments/:id', async (req, res) => {
     res.json(savedComment)
 })
 
-app.put('/comments/:id', async (req, res) => {
+app.put('/api/comments/:id', async (req, res) => {
     const token = req.headers.authorization.split(' ')[1]
     const decodedToken = jwt.verify(token, process.env.JWT_SECRET)
 
@@ -223,7 +223,7 @@ app.put('/comments/:id', async (req, res) => {
     res.json(savedComment)
 })
 
-app.delete('/comments/:id', async (req, res) => {
+app.delete('/api/comments/:id', async (req, res) => {
     let decodedToken = authenticate(req);
 
     if (!decodedToken[0]){
@@ -247,8 +247,25 @@ app.delete('/comments/:id', async (req, res) => {
     res.status(204).end()
 })
 
+app.get('/api/comments/:id', async (req, res) => {
+    if (!authenticate(req)){
+        return res.status(401).json({ error: 'invalid request. Authentication failed' })
+    }
+
+    const post = await Post.findById(req.params.id)
+        .populate('author', { username: 1 })
+        .populate('comments', { author: 1, content: 1 })
+        .populate('likes', { username: 1 })
+
+    if (post) {
+        res.json(post.comments)
+    } else {
+        res.status(404).end()
+    }
+})
+
 // Like routes
-app.post('/likes/:id', async (req, res) => {
+app.post('/api/likes/:id', async (req, res) => {
     let decodedToken = authenticate(req);
 
     if (!decodedToken[0]){
@@ -260,7 +277,6 @@ app.post('/likes/:id', async (req, res) => {
 
     if (user._id.equals(post.author._id)){
         return res.status(401).json({ error: 'invalid request. You are not allowed to like this post' })
-
     }
 
     if (post.likes.includes(user._id)) {
@@ -274,7 +290,24 @@ app.post('/likes/:id', async (req, res) => {
     res.json(post)
 })
 
-app.delete('/likes/:id', async (req, res) => {
+app.get('/api/likes/:id', async (req, res) => {
+    if (!authenticate(req)){
+        return res.status(401).json({ error: 'invalid request. Authentication failed' })
+    }
+
+    const post = await Post.findById(req.params.id)
+        .populate('author', { username: 1 })
+        .populate('comments', { author: 1, content: 1 })
+        .populate('likes', { username: 1 })
+
+    if (post) {
+        res.json(post.likes)
+    } else {
+        res.status(404).end()
+    }
+})
+
+app.delete('/api/likes/:id', async (req, res) => {
     let decodedToken = authenticate(req);
 
     if (!decodedToken[0]){
@@ -291,6 +324,7 @@ app.delete('/likes/:id', async (req, res) => {
 
     res.json(post)
 })
+
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT,()=>{
