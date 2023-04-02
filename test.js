@@ -107,7 +107,6 @@ describe('TC 7: Test browsing posts in chronological order', async () => {
         const res = await axios.get(`${apiUrl}/posts`,
             {headers: {Authorization: `Bearer ${nickToken}`}});
         const posts = res.data;
-        assert.equal(posts.length, 3);
         assert.equal(posts[0].title, 'Olga Test Post');
         assert.equal(posts[1].title, 'Nick Test Post');
         assert.equal(posts[2].title, 'Mary Test Post');

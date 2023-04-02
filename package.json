@@ -4,7 +4,7 @@
   "description": "SaaS API where users can post thoughts,views etc and share",
   "main": "index.js",
   "scripts": {
-    "test": "test"
+    "test": "node test.js"
   },
   "author": "Moses Nganga",
   "license": "ISC",
